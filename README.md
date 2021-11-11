@@ -1,4 +1,4 @@
-# Serverless Python Hello World with Cloud Run and Cloud Build
+# Serverless Python Hello World with Cloud Run
 
 This tutorial walks you through deploying Python `Hello World` webapp on [Cloud Run](https://cloud.google.com/run), Google Cloud's container based Serverless compute platform.
 
@@ -16,13 +16,6 @@ We will deploy application on Cloud Run:
 ## Tutorial
 
 ### Manually Deploying application on Cloud Run with Docker Image build via DockerFile
-
-Pull the repo with DockerFile:
-
-```
-git pull 
-```
-
 
 To streamline the rest of the tutorial define the key configuration settings and assign them to environment variables:
 
@@ -42,13 +35,128 @@ gcloud services enable --async \
   artifactregistry.googleapis.com
 ```
 
+Pull the repo with python webapp:
+
+```
+git pull https://github.com/gdg-cloud-montreal/cloud-run-python
+cd cloud-run-python
+ls
+```
+
+
+Review the `app.py` python application:
+
+```
+cat app.py
+```
+
+
+Output: 
+
+```
+from flask import Flask, request
+
+app = Flask(__name__)
+
+
+@app.route("/", methods=["GET"])
+def hello():
+    """ Return a friendly HTTP greeting. """
+    who = request.args.get("who", "World")
+    return f"Hello {who}!\n"
+
+
+if __name__ == "__main__":
+    # Used when running locally only. When deploying to Cloud Run,
+    # a webserver process such as Gunicorn will serve the app.
+    app.run(host="localhost", port=8080, debug=True)
+```
+
+
+Review the `Dockerfile` for python application:
+
+```
+cat Dockerfile
+```
+
+
+```
+# Use an official lightweight Python image.
+# https://hub.docker.com/_/python
+FROM python:3.9-slim
+
+# Install production dependencies.
+RUN pip install Flask gunicorn
+
+# Copy local code to the container image.
+WORKDIR /app
+COPY . .
+
+# Service must listen to $PORT environment variable.
+# This default value facilitates local development.
+ENV PORT 8080
+
+# Run the web service on container startup. Here we use the gunicorn
+# webserver, with one worker process and 8 threads.
+# For environments with multiple CPU cores, increase the number of workers
+# to be equal to the cores available.
+CMD exec gunicorn --bind 0.0.0.0:$PORT --workers 1 --threads 8 --timeout 0 app:app
+```
+
+
+*Note:* You can define any container image conforming to the Cloud Run [Container Contract](https://cloud.google.com/run/docs/reference/container-contract)
+
+
+Define the `DOCKER_IMG` environment variables:
+
+
+```
+DOCKER_IMG="gcr.io/$PROJECT_ID/helloworld-python"
+echo $DOCKER_IMG
+```
+
+Now, build your container image using Cloud Build, by running the following command from the directory containing the Dockerfile:
+
+
+```
+gcloud builds submit --tag $DOCKER_IMG
+```
+
+!!! result
+    Once pushed to the registry, you will see a `SUCCESS` message containing the image name. The image is stored in Container Registry and can be re-used if desired.
+
+
+List all the container images associated with your current project using this command:
+
+```
+gcloud container images list
+```
+
+
+Before deploying, run and test the application locally from Cloud Shell, you can start it using these standard docker commands:
+
+
+```
+docker pull $DOCKER_IMG
+docker run -p 8080:8080 $DOCKER_IMG
+```
+
+Deploy your containerized application to Cloud Run with the following command:
+
+```
+gcloud run deploy helloworld-python \
+  --image $DOCKER_IMG \
+  --platform managed \
+  --region us-central1 \
+  --allow-unauthenticated
+```
+
 
 ### Manually Deploying application on Cloud Run with Docker Image build via BuildPacks
 
 [To DO]
 
 ### Automatically Deploying application on Cloud Run using Cloud Build Trigger
-
 
 #### Enable Required IAM permissions to use Cloud Run with Cloud Build:
 
@@ -66,6 +174,24 @@ Step 3 In the Additional steps may be required pop-up, click GRANT ACCESS TO ALL
 ```
 cd cloud-run-python
 cat cloudbuild.yaml
+```
+
+```
+steps:
+# Build the container image
+- name: 'gcr.io/cloud-builders/docker'
+  args: ['build', '-t', 'gcr.io/$PROJECT_ID/python-hello', '.']
+# Push the container image to Container Registry
+- name: 'gcr.io/cloud-builders/docker'
+  args: ['push', 'gcr.io/$PROJECT_ID/python-hello']
+# Deploy container image to Cloud Run
+- name: 'gcr.io/cloud-builders/gcloud'
+  args: ['run', 'deploy', '${_APP_NAME}', '--image', 'gcr.io/$PROJECT_ID/python-hello', '--region', '${_REGION}', '--platform', 'managed', '--allow-unauthenticated']
+images:
+- gcr.io/$PROJECT_ID/python-hello
+substitutions:
+    _APP_NAME: hello-world
+    _REGION: us-central1
 ```
 
 
